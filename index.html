@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>五子棋</title>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:#0a0a1a;color:#fff;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+#app{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.screen{display:none;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;position:absolute;top:0;left:0}
+.screen.active{display:flex}
+.logo{font-size:48px;font-weight:700;letter-spacing:4px;background:linear-gradient(135deg,#f6d365,#fda085);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:40px}
+.card{background:rgba(255,255,255,0.06);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:32px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:16px}
+.btn{display:block;width:100%;padding:14px 24px;border:none;border-radius:12px;font-size:16px;font-weight:600;cursor:pointer;transition:all 0.2s;text-align:center}
+.btn:active{transform:scale(0.97)}
+.btn-primary{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;box-shadow:0 4px 15px rgba(102,126,234,0.3)}
+.btn-primary:hover{box-shadow:0 6px 20px rgba(102,126,234,0.5)}
+.btn-secondary{background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2)}
+.btn-disabled,.btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+.input-group{display:flex;gap:8px}
+.input-group input{flex:1;padding:14px 16px;border:1px solid rgba(255,255,255,0.15);border-radius:12px;background:rgba(255,255,255,0.05);color:#fff;font-size:20px;text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.2s}
+.input-group input:focus{border-color:#667eea}
+.input-group input::placeholder{font-size:14px;letter-spacing:normal;color:rgba(255,255,255,0.3)}
+.input-group .btn{width:auto;flex-shrink:0;padding:14px 20px}
+.error-msg{color:#ff6b6b;font-size:14px;text-align:center;min-height:20px}
+.waiting-text{color:rgba(255,255,255,0.6);font-size:15px;text-align:center}
+.room-label{color:rgba(255,255,255,0.4);font-size:14px;text-align:center}
+.room-code{font-size:48px;font-weight:700;letter-spacing:12px;text-align:center;color:#fff;font-family:monospace;padding:8px 0}
+.share-url{font-size:12px;color:rgba(255,255,255,0.35);text-align:center;word-break:break-all;padding:4px 0}
+.spinner{width:32px;height:32px;border:3px solid rgba(255,255,255,0.1);border-top-color:#667eea;border-radius:50%;animation:spin 0.8s linear infinite;margin:8px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.logo.small{font-size:28px;margin-bottom:24px}
+#screen-game{padding:0}
+.game-header{width:100%;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;flex-shrink:0}
+.turn-indicator{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500}
+.stone-icon{width:18px;height:18px;border-radius:50%;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,0.3)}
+.stone-icon.black{background:radial-gradient(circle at 35% 35%,#555,#000)}
+.stone-icon.white{background:radial-gradient(circle at 35% 35%,#fff,#ccc);border:1px solid #aaa}
+.turn-pulse{animation:pulse 1.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.room-badge{font-size:13px;padding:6px 12px;background:rgba(255,255,255,0.08);border-radius:8px;color:rgba(255,255,255,0.5);font-family:monospace}
+.board-container{flex:1;display:flex;align-items:center;justify-content:center;width:100%;padding:8px}
+#boardCanvas{border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.4);touch-action:none;max-width:100%;max-height:100%}
+.status-bar{width:100%;padding:6px 16px 10px;text-align:center;font-size:13px;color:rgba(255,255,255,0.4);flex-shrink:0}
+.overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);align-items:center;justify-content:center;z-index:100}
+.overlay.active{display:flex}
+.overlay-content{background:rgba(30,30,60,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:32px;width:90%;max-width:320px;display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center}
+.winner-text{font-size:24px;font-weight:700;margin-bottom:8px}
+.winner-text.win{color:#f6d365}
+.winner-text.lose{color:#ff6b6b}
+.winner-text.draw{color:#aaa}
+.hint{font-size:13px;color:rgba(255,255,255,0.4);min-height:20px}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="screen-lobby" class="screen active">
+    <div class="logo">五子棋</div>
+    <div class="card">
+      <button class="btn btn-primary" id="btnCreateRoom">创建房间</button>
+      <div class="input-group">
+        <input id="roomInput" type="text" maxlength="6" placeholder="输入房间码" inputmode="text" style="letter-spacing:2px;font-size:16px">
+        <button class="btn btn-secondary" id="btnJoinRoom">加入</button>
+      </div>
+      <div id="errorMsg" class="error-msg"></div>
+    </div>
+  </div>
+
+  <div id="screen-waiting" class="screen">
+    <div class="logo small">五子棋</div>
+    <div class="card">
+      <p class="room-label">房间码</p>
+      <p class="room-code" id="roomCodeDisplay"></p>
+      <div class="share-url" id="shareUrl"></div>
+      <p class="waiting-text" id="waitingText">等待对手加入...</p>
+      <div class="spinner"></div>
+      <button class="btn btn-secondary" id="btnCancel" style="margin-top:8px">取消</button>
+    </div>
+  </div>
+
+  <div id="screen-game" class="screen">
+    <div class="game-header">
+      <div class="turn-indicator" id="turnIndicator">
+        <div class="stone-icon black"></div>
+        <span id="turnText">黑方落子</span>
+      </div>
+      <div class="room-badge" id="roomBadge"></div>
+    </div>
+    <div class="board-container">
+      <canvas id="boardCanvas"></canvas>
+    </div>
+    <div class="status-bar" id="statusBar"></div>
+  </div>
+</div>
+
+<div id="gameOverOverlay" class="overlay">
+  <div class="overlay-content">
+    <p class="winner-text" id="winnerText"></p>
+    <button class="btn btn-primary" id="btnRematch">再来一局</button>
+    <button class="btn btn-secondary" id="btnQuit">退出</button>
+    <p class="hint" id="rematchHint"></p>
+  </div>
+</div>
+
+<div id="disconnectOverlay" class="overlay">
+  <div class="overlay-content">
+    <p style="font-size:18px;font-weight:600;margin-bottom:4px">对方已断开</p>
+    <p style="font-size:14px;color:rgba(255,255,255,0.5);margin-bottom:8px">游戏已结束</p>
+    <button class="btn btn-primary" id="btnBack">返回首页</button>
+  </div>
+</div>
+
+<script>
+const BOARD_SIZE = 15;
+const STAR_POINTS = [[3,3],[3,7],[3,11],[7,3],[7,7],[7,11],[11,3],[11,7],[11,11]];
+
+const $ = id => document.getElementById(id);
+const screenLobby = $('screen-lobby');
+const screenWaiting = $('screen-waiting');
+const screenGame = $('screen-game');
+const gameOverOverlay = $('gameOverOverlay');
+const disconnectOverlay = $('disconnectOverlay');
+const roomInput = $('roomInput');
+const errorMsg = $('errorMsg');
+const roomCodeDisplay = $('roomCodeDisplay');
+const shareUrl = $('shareUrl');
+const waitingText = $('waitingText');
+const roomBadge = $('roomBadge');
+const turnIndicator = $('turnIndicator');
+const turnText = $('turnText');
+const statusBar = $('statusBar');
+const winnerText = $('winnerText');
+const rematchHint = $('rematchHint');
+const canvas = $('boardCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- Game State ---
+let peer = null;
+let conn = null;
+let isHost = false;
+const state = {
+  myColor: null, board: null, currentTurn: null, isGameOver: false,
+  lastMove: null, winLine: null, roomCode: null, isMyTurn: false,
+  opponentRequestedRematch: false
+};
+
+// --- Canvas ---
+let cPad, cBoardSize, cCellSize, cDisplaySize;
+
+function setupCanvas() {
+  const container = canvas.parentElement;
+  const maxSize = Math.min(container.clientWidth, container.clientHeight, 560);
+  cDisplaySize = Math.max(200, maxSize);
+  cPad = cDisplaySize * 0.055;
+  cBoardSize = cDisplaySize - cPad * 2;
+  cCellSize = cBoardSize / (BOARD_SIZE - 1);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.style.width = cDisplaySize + 'px';
+  canvas.style.height = cDisplaySize + 'px';
+  canvas.width = cDisplaySize * dpr;
+  canvas.height = cDisplaySize * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function drawBoard() {
+  ctx.clearRect(0, 0, cDisplaySize, cDisplaySize);
+  drawBackground(); drawGrid(); drawStarPoints();
+  if (!state.board) return;
+  for (let r = 0; r < BOARD_SIZE; r++)
+    for (let c = 0; c < BOARD_SIZE; c++)
+      if (state.board[r][c] !== 0)
+        drawStone(r, c, state.board[r][c], state.lastMove && state.lastMove.row === r && state.lastMove.col === c, false);
+  if (state.winLine) drawWinHighlight(state.winLine);
+  if (hoverPos && state.isMyTurn && !state.isGameOver && state.board && state.board[hoverPos.row][hoverPos.col] === 0)
+    drawPreview(hoverPos.row, hoverPos.col);
+}
+
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, cDisplaySize, cDisplaySize);
+  g.addColorStop(0, '#E2C28B'); g.addColorStop(0.3, '#D4A76A');
+  g.addColorStop(0.7, '#C89A5E'); g.addColorStop(1, '#B8894F');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, cDisplaySize, cDisplaySize);
+  for (let x = 0; x < cDisplaySize; x += 7) {
+    ctx.beginPath(); ctx.moveTo(x, 0);
+    ctx.quadraticCurveTo(x + 3, cDisplaySize * 0.5, x - 2, cDisplaySize);
+    ctx.strokeStyle = 'rgba(0,0,0,0.025)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+}
+
+function drawGrid() {
+  ctx.strokeStyle = '#5D4037'; ctx.lineWidth = 0.8;
+  for (let i = 0; i < BOARD_SIZE; i++) {
+    const y = cPad + i * cCellSize; ctx.beginPath(); ctx.moveTo(cPad, y); ctx.lineTo(cPad + cBoardSize, y); ctx.stroke();
+    const x = cPad + i * cCellSize; ctx.beginPath(); ctx.moveTo(x, cPad); ctx.lineTo(x, cPad + cBoardSize); ctx.stroke();
+  }
+}
+
+function drawStarPoints() {
+  ctx.fillStyle = '#5D4037';
+  for (const [r, c] of STAR_POINTS) {
+    ctx.beginPath(); ctx.arc(cPad + c * cCellSize, cPad + r * cCellSize, cCellSize * 0.1, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawStone(row, col, color, isLast, ghost) {
+  const x = cPad + col * cCellSize, y = cPad + row * cCellSize, r = cCellSize * 0.44;
+  ctx.save(); if (ghost) ctx.globalAlpha = 0.4;
+  ctx.beginPath(); ctx.arc(x + 1.5, y + 1.5, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fill();
+  if (color === 1) {
+    const g = ctx.createRadialGradient(x - r*0.3, y - r*0.3, r*0.05, x, y, r);
+    g.addColorStop(0, '#777'); g.addColorStop(0.35, '#333'); g.addColorStop(1, '#000');
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+  } else {
+    const g = ctx.createRadialGradient(x - r*0.3, y - r*0.3, r*0.05, x, y, r);
+    g.addColorStop(0, '#FFFFFF'); g.addColorStop(0.5, '#F0F0F0'); g.addColorStop(1, '#C8C8C8');
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = '#B0B0B0'; ctx.lineWidth = 0.5; ctx.stroke();
+  }
+  ctx.restore();
+  if (isLast) {
+    ctx.beginPath(); ctx.arc(x, y, r * 0.22, 0, Math.PI * 2); ctx.fillStyle = '#FF3B30'; ctx.fill();
+  }
+}
+
+function drawPreview(row, col) { drawStone(row, col, state.myColor === 'black' ? 1 : 2, false, true); }
+
+function drawWinHighlight(winLine) {
+  for (const cell of winLine) {
+    const x = cPad + cell.col * cCellSize, y = cPad + cell.row * cCellSize, r = cCellSize * 0.46;
+    ctx.save(); ctx.shadowColor = 'rgba(255,215,0,0.6)'; ctx.shadowBlur = 15;
+    ctx.beginPath(); ctx.arc(x, y, r + 2, 0, Math.PI * 2); ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,215,0,0.15)'; ctx.fill(); ctx.restore();
+  }
+}
+
+// --- Input ---
+let hoverPos = null, touchId = null;
+
+function getIntersection(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const sx = (clientX - rect.left) / rect.width * cDisplaySize;
+  const sy = (clientY - rect.top) / rect.height * cDisplaySize;
+  const col = Math.round((sx - cPad) / cCellSize);
+  const row = Math.round((sy - cPad) / cCellSize);
+  if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) return null;
+  if (Math.hypot(sx - (cPad + col * cCellSize), sy - (cPad + row * cCellSize)) > cCellSize * 0.48) return null;
+  return { row, col };
+}
+
+function tryPlace(row, col) {
+  if (!state.isMyTurn || state.isGameOver || !state.board) return;
+  if (state.board[row][col] !== 0) return;
+  if (isHost) {
+    handleMove(row, col);
+  } else if (conn && conn.open) {
+    conn.send(JSON.stringify({ type: 'place_stone', row, col }));
+  }
+}
+
+canvas.addEventListener('mousemove', (e) => { hoverPos = getIntersection(e.clientX, e.clientY); drawBoard(); });
+canvas.addEventListener('mouseleave', () => { hoverPos = null; drawBoard(); });
+canvas.addEventListener('click', (e) => { const p = getIntersection(e.clientX, e.clientY); if (p) tryPlace(p.row, p.col); });
+canvas.addEventListener('touchstart', (e) => { e.preventDefault(); const t = e.changedTouches[0]; touchId = t.identifier; hoverPos = getIntersection(t.clientX, t.clientY); drawBoard(); }, { passive: false });
+canvas.addEventListener('touchmove', (e) => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === touchId) { hoverPos = getIntersection(t.clientX, t.clientY); drawBoard(); } }, { passive: false });
+canvas.addEventListener('touchend', (e) => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === touchId) { const p = getIntersection(t.clientX, t.clientY); if (p) tryPlace(p.row, p.col); touchId = null; hoverPos = null; drawBoard(); } }, { passive: false });
+
+// --- Game Logic (Host side) ---
+function checkWin(board, row, col, color) {
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  for (const [dr, dc] of dirs) {
+    const cells = [{row,col}];
+    let r=row+dr,c=col+dc;
+    while (r>=0&&r<BOARD_SIZE&&c>=0&&c<BOARD_SIZE&&board[r][c]===color) { cells.push({row:r,col:c}); r+=dr; c+=dc; }
+    r=row-dr; c=col-dc;
+    while (r>=0&&r<BOARD_SIZE&&c>=0&&c<BOARD_SIZE&&board[r][c]===color) { cells.push({row:r,col:c}); r-=dr; c-=dc; }
+    if (cells.length>=5) return cells;
+  }
+  return null;
+}
+
+function createBoard() { return Array.from({length:BOARD_SIZE}, () => Array(BOARD_SIZE).fill(0)); }
+
+function handleMove(row, col) {
+  if (!state.board || state.isGameOver) return;
+  if (state.board[row][col] !== 0) return;
+
+  const colorVal = state.currentTurn === 'black' ? 1 : 2;
+  state.board[row][col] = colorVal;
+  state.lastMove = { row, col };
+
+  const winLine = checkWin(state.board, row, col, colorVal);
+
+  if (winLine) {
+    state.isGameOver = true;
+    state.winLine = winLine;
+    const winner = colorVal === 1 ? 'black' : 'white';
+    broadcast({ type: 'game_over', winner, board: state.board, lastMove: { row, col }, winLine });
+    applyState({ type: 'game_over', winner, lastMove: { row, col }, winLine });
+  } else if (state.board.every(r => r.every(c => c !== 0))) {
+    state.isGameOver = true;
+    broadcast({ type: 'game_over', winner: 'draw', board: state.board, lastMove: { row, col }, winLine: null });
+    applyState({ type: 'game_over', winner: 'draw', lastMove: { row, col }, winLine: null });
+  } else {
+    state.currentTurn = state.currentTurn === 'black' ? 'white' : 'black';
+    state.isMyTurn = (state.myColor === state.currentTurn);
+    broadcast({ type: 'game_state', board: state.board, currentTurn: state.currentTurn, lastMove: { row, col } });
+    applyState({ type: 'game_state', currentTurn: state.currentTurn, lastMove: { row, col } });
+  }
+}
+
+function broadcast(msg) {
+  if (conn && conn.open) conn.send(JSON.stringify(msg));
+}
+
+// --- Apply state updates to UI ---
+function applyState(msg) {
+  switch (msg.type) {
+    case 'game_state':
+      state.currentTurn = msg.currentTurn;
+      state.lastMove = msg.lastMove;
+      state.isMyTurn = (state.myColor === msg.currentTurn);
+      updateGameUI(); drawBoard();
+      break;
+    case 'game_over':
+      state.isGameOver = true;
+      state.lastMove = msg.lastMove;
+      state.winLine = msg.winLine;
+      state.isMyTurn = false;
+      drawBoard();
+      const won = msg.winner === state.myColor;
+      winnerText.textContent = msg.winner === 'draw' ? '平局' : (won ? '你赢了！' : '你输了');
+      winnerText.className = 'winner-text ' + (msg.winner === 'draw' ? 'draw' : won ? 'win' : 'lose');
+      rematchHint.textContent = '';
+      state.opponentRequestedRematch = false;
+      gameOverOverlay.classList.add('active');
+      break;
+  }
+}
+
+// --- PeerJS ---
+function createRoom() {
+  errorMsg.textContent = '正在创建房间...';
+  if (peer) { peer.destroy(); peer = null; }
+  const code = Math.floor(1000 + Math.random() * 9000).toString();
+  peer = new Peer(code);
+  peer.on('open', (id) => {
+    isHost = true;
+    state.roomCode = id;
+    state.board = createBoard();
+    state.currentTurn = 'black';
+    state.isGameOver = false;
+    state.lastMove = null;
+    state.winLine = null;
+    state.myColor = 'black';
+    state.isMyTurn = true;
+    roomCodeDisplay.textContent = id;
+    shareUrl.textContent = window.location.origin + window.location.pathname;
+    waitingText.textContent = '等待对手加入...';
+    showScreen('waiting');
+    errorMsg.textContent = '';
+  });
+  peer.on('error', (err) => {
+    if (err.type === 'unavailable-id') {
+      createRoom();
+    } else {
+      errorMsg.textContent = '创建失败: ' + err.type;
+    }
+  });
+  peer.on('connection', (incoming) => {
+    conn = incoming;
+    conn.on('open', () => {
+      conn.send(JSON.stringify({ type: 'game_start', color: 'white', board: state.board, currentTurn: 'black', lastMove: null }));
+      startGame('black');
+    });
+    conn.on('data', (data) => {
+      try { handlePeerMessage(JSON.parse(data)); } catch(e) {}
+    });
+    conn.on('close', () => { disconnectOverlay.classList.add('active'); });
+  });
+}
+
+function joinRoom() {
+  const code = roomInput.value.trim();
+  if (!code) { errorMsg.textContent = '请输入房间码'; return; }
+  errorMsg.textContent = '正在加入...';
+  if (peer) { peer.destroy(); peer = null; }
+  peer = new Peer();
+  peer.on('open', () => {
+    conn = peer.connect(code);
+    conn.on('open', () => {
+      isHost = false;
+      state.roomCode = code;
+    });
+    conn.on('data', (data) => {
+      try { handlePeerMessage(JSON.parse(data)); } catch(e) {}
+    });
+    conn.on('close', () => { disconnectOverlay.classList.add('active'); });
+    // Timeout if no connection
+    setTimeout(() => {
+      if (!conn || !conn.open) {
+        errorMsg.textContent = '无法加入，请检查房间码';
+      }
+    }, 8000);
+  });
+  peer.on('error', (err) => {
+    errorMsg.textContent = '连接失败: ' + err.type;
+  });
+}
+
+function handlePeerMessage(msg) {
+  switch (msg.type) {
+    case 'game_start':
+      state.myColor = msg.color;
+      state.board = msg.board;
+      state.currentTurn = msg.currentTurn;
+      state.isGameOver = false;
+      state.lastMove = msg.lastMove;
+      state.winLine = null;
+      state.isMyTurn = (state.myColor === msg.currentTurn);
+      state.opponentRequestedRematch = false;
+      $('btnRematch').disabled = false;
+      rematchHint.textContent = '';
+      gameOverOverlay.classList.remove('active');
+      disconnectOverlay.classList.remove('active');
+      roomBadge.textContent = '#' + state.roomCode;
+      showScreen('game');
+      updateGameUI();
+      requestAnimationFrame(() => { setupCanvas(); drawBoard(); });
+      break;
+    case 'game_state':
+      state.board = msg.board;
+      applyState(msg);
+      break;
+    case 'game_over':
+      state.board = msg.board;
+      applyState(msg);
+      break;
+    case 'place_stone':
+      if (isHost) handleMove(msg.row, msg.col);
+      break;
+    case 'rematch':
+      if (isHost) {
+        startRematch();
+      } else {
+        state.opponentRequestedRematch = true;
+        if (gameOverOverlay.classList.contains('active')) {
+          rematchHint.textContent = '对方请求再来一局';
+        }
+      }
+      break;
+  }
+}
+
+function startGame(color) {
+  state.myColor = color;
+  if (isHost) state.myColor = 'black';
+  state.isMyTurn = (state.myColor === 'black');
+  state.isGameOver = false;
+  state.lastMove = null;
+  state.winLine = null;
+  gameOverOverlay.classList.remove('active');
+  disconnectOverlay.classList.remove('active');
+  roomBadge.textContent = '#' + state.roomCode;
+  showScreen('game');
+  updateGameUI();
+  requestAnimationFrame(() => { setupCanvas(); drawBoard(); });
+}
+
+function startRematch() {
+  state.board = createBoard();
+  state.currentTurn = 'black';
+  state.isGameOver = false;
+  state.lastMove = null;
+  state.winLine = null;
+  state.isMyTurn = true;
+  state.opponentRequestedRematch = false;
+  state.myColor = 'black';
+  $('btnRematch').disabled = false;
+  rematchHint.textContent = '';
+  gameOverOverlay.classList.remove('active');
+  disconnectOverlay.classList.remove('active');
+  const startMsg = { type: 'game_start', color: 'white', board: state.board, currentTurn: 'black', lastMove: null };
+  if (conn && conn.open) conn.send(JSON.stringify(startMsg));
+  startGame('black');
+}
+
+// --- UI ---
+function updateGameUI() {
+  if (!state.myColor) return;
+  turnIndicator.querySelector('.stone-icon').className = 'stone-icon ' + state.myColor;
+  if (state.isGameOver) {
+    turnText.textContent = '游戏结束'; turnIndicator.classList.remove('turn-pulse'); statusBar.textContent = '';
+  } else if (state.isMyTurn) {
+    turnText.textContent = '你的回合'; turnIndicator.classList.add('turn-pulse'); statusBar.textContent = '点击棋盘落子';
+  } else {
+    turnText.textContent = '对方思考中...'; turnIndicator.classList.remove('turn-pulse'); statusBar.textContent = '等待对方落子';
+  }
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  if (id === 'lobby') $('screen-lobby').classList.add('active');
+  else if (id === 'waiting') $('screen-waiting').classList.add('active');
+  else if (id === 'game') $('screen-game').classList.add('active');
+}
+
+function requestRematch() {
+  if (isHost) {
+    startRematch();
+  } else {
+    if (conn && conn.open) conn.send(JSON.stringify({ type: 'rematch' }));
+    rematchHint.textContent = '已发送请求...';
+    $('btnRematch').disabled = true;
+  }
+}
+
+function quitGame() {
+  if (peer) { peer.destroy(); peer = null; }
+  conn = null; isHost = false;
+  gameOverOverlay.classList.remove('active');
+  disconnectOverlay.classList.remove('active');
+  state.roomCode = null;
+  showScreen('lobby');
+  roomInput.value = ''; errorMsg.textContent = '';
+  $('btnRematch').disabled = false; rematchHint.textContent = '';
+  state.board = null;
+}
+
+// --- Events ---
+$('btnCreateRoom').addEventListener('click', createRoom);
+$('btnJoinRoom').addEventListener('click', joinRoom);
+$('btnRematch').addEventListener('click', requestRematch);
+$('btnCancel').addEventListener('click', quitGame);
+$('btnQuit').addEventListener('click', quitGame);
+$('btnBack').addEventListener('click', quitGame);
+roomInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom(); });
+
+window.addEventListener('resize', () => {
+  if ($('screen-game').classList.contains('active'))
+    requestAnimationFrame(() => { setupCanvas(); drawBoard(); });
+});
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => {
+    if ($('screen-game').classList.contains('active'))
+      requestAnimationFrame(() => { setupCanvas(); drawBoard(); });
+  }, 400);
+});
+
+</script>
+</body>
+</html>

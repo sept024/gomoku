@@ -62,7 +62,7 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,Blink
     <div class="card">
       <button class="btn btn-primary" id="btnCreateRoom">创建房间</button>
       <div class="input-group">
-        <input id="roomInput" type="text" maxlength="6" placeholder="输入房间码" inputmode="text" style="letter-spacing:2px;font-size:16px">
+        <input id="roomInput" type="text" maxlength="5" placeholder="输入房间码（5位大写）" inputmode="text" style="letter-spacing:4px;font-size:16px;text-transform:uppercase">
         <button class="btn btn-secondary" id="btnJoinRoom">加入</button>
       </div>
       <div id="errorMsg" class="error-msg"></div>
@@ -72,8 +72,9 @@ html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,Blink
   <div id="screen-waiting" class="screen">
     <div class="logo small">五子棋</div>
     <div class="card">
-      <p class="room-label">房间码</p>
+      <p class="room-label">房间码（发给好友）</p>
       <p class="room-code" id="roomCodeDisplay"></p>
+      <button class="btn btn-secondary" id="btnCopyCode" style="padding:8px;font-size:13px">复制房间码</button>
       <div class="share-url" id="shareUrl"></div>
       <p class="waiting-text" id="waitingText">等待对手加入...</p>
       <div class="spinner"></div>
@@ -342,11 +343,28 @@ function applyState(msg) {
 }
 
 // --- PeerJS ---
+const ICE_SERVERS = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+    ]
+  }
+};
+
+function genRoomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
 function createRoom() {
   errorMsg.textContent = '正在创建房间...';
   if (peer) { peer.destroy(); peer = null; }
-  const code = Math.floor(1000 + Math.random() * 9000).toString();
-  peer = new Peer(code);
+  const code = genRoomCode();
+  peer = new Peer(code, ICE_SERVERS);
   peer.on('open', (id) => {
     isHost = true;
     state.roomCode = id;
@@ -363,11 +381,15 @@ function createRoom() {
     showScreen('waiting');
     errorMsg.textContent = '';
   });
+  peer.on('disconnected', () => {
+    waitingText.textContent = '正在重连...';
+    peer.reconnect();
+  });
   peer.on('error', (err) => {
     if (err.type === 'unavailable-id') {
       createRoom();
     } else {
-      errorMsg.textContent = '创建失败: ' + err.type;
+      errorMsg.textContent = '创建失败: ' + (err.message || err.type);
     }
   });
   peer.on('connection', (incoming) => {
@@ -380,34 +402,51 @@ function createRoom() {
       try { handlePeerMessage(JSON.parse(data)); } catch(e) {}
     });
     conn.on('close', () => { disconnectOverlay.classList.add('active'); });
+    conn.on('error', (err) => {
+      if (!state.isGameOver) waitingText.textContent = '连接异常: ' + (err.message || err.type);
+    });
   });
 }
 
 function joinRoom() {
-  const code = roomInput.value.trim();
+  const code = roomInput.value.trim().toUpperCase();
   if (!code) { errorMsg.textContent = '请输入房间码'; return; }
-  errorMsg.textContent = '正在加入...';
+  errorMsg.textContent = '正在连接服务器...';
   if (peer) { peer.destroy(); peer = null; }
-  peer = new Peer();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    if (!conn || !conn.open) {
+      errorMsg.textContent = '连接超时，请检查房间码或网络';
+    }
+  }, 15000);
+  peer = new Peer(ICE_SERVERS);
   peer.on('open', () => {
+    if (timedOut) return;
+    errorMsg.textContent = '正在建立连接...';
     conn = peer.connect(code);
     conn.on('open', () => {
+      clearTimeout(timeoutId);
       isHost = false;
       state.roomCode = code;
+      errorMsg.textContent = '';
     });
     conn.on('data', (data) => {
       try { handlePeerMessage(JSON.parse(data)); } catch(e) {}
     });
     conn.on('close', () => { disconnectOverlay.classList.add('active'); });
-    // Timeout if no connection
-    setTimeout(() => {
-      if (!conn || !conn.open) {
-        errorMsg.textContent = '无法加入，请检查房间码';
-      }
-    }, 8000);
+    conn.on('error', (err) => {
+      clearTimeout(timeoutId);
+      errorMsg.textContent = '无法加入：房间码无效或对方不可达';
+    });
+  });
+  peer.on('disconnected', () => {
+    if (!timedOut) errorMsg.textContent = '正在重连...';
+    peer.reconnect();
   });
   peer.on('error', (err) => {
-    errorMsg.textContent = '连接失败: ' + err.type;
+    clearTimeout(timeoutId);
+    errorMsg.textContent = '连接失败: ' + (err.message || err.type);
   });
 }
 
@@ -537,6 +576,13 @@ $('btnRematch').addEventListener('click', requestRematch);
 $('btnCancel').addEventListener('click', quitGame);
 $('btnQuit').addEventListener('click', quitGame);
 $('btnBack').addEventListener('click', quitGame);
+$('btnCopyCode').addEventListener('click', () => {
+  const code = roomCodeDisplay.textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    $('btnCopyCode').textContent = '已复制!';
+    setTimeout(() => { $('btnCopyCode').textContent = '复制房间码'; }, 2000);
+  }).catch(() => {});
+});
 roomInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom(); });
 
 window.addEventListener('resize', () => {

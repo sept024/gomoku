@@ -1267,12 +1267,20 @@ body {
     // ================= 操作 =================
 
     handleBoardClick(e) {
-      if (!this.isMyTurn() || this.undoPending || this.rematchPending) return;
+      if (!this.isMyTurn() || this.undoPending || this.rematchPending || this.modalBusy) return;
       const cell = this.getCell(e);
       if (!cell) return;
       if (this.board[cell.row][cell.col] !== 0) return;
-      this.send({ t: 'move', row: cell.row, col: cell.col });
-      this.applyMove(cell.row, cell.col);
+      this.confirmPlace(cell.row, cell.col);
+    }
+
+    async confirmPlace(row, col) {
+      const ok = await this.confirm('落子确认', `确定在 (${row + 1}, ${col + 1}) 落子吗？`);
+      if (!ok) return;
+      if (!this.isMyTurn()) return;
+      if (this.board[row][col] !== 0) return;
+      this.send({ t: 'move', row, col });
+      this.applyMove(row, col);
     }
 
     handleBoardHover(e) {
